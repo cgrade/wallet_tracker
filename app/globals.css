@@ -1,26 +1,191 @@
-@import "tailwindcss";
-
+/* app/globals.css */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --primary: #00ff00;
+  --primary-glow: 0 0 10px rgba(0, 255, 0, 0.5);
+  --bg-dark: #121212;
+  --card-bg: #1a1a1a;
+  --text-light: #fff;
+  --text-secondary: #a0a0a0;
+  --border-radius: 12px;
+  --transition: all 0.3s ease;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg-dark);
+  color: var(--text-light);
+  font-family: 'Courier New', Courier, monospace;
+  margin: 0;
+  padding: 0;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+h1, h2 {
+  color: var(--primary);
+  text-shadow: var(--primary-glow);
+  text-align: center;
+}
+
+input, button {
+  background: var(--card-bg);
+  border: 1px solid var(--primary);
+  color: var(--text-light);
+  padding: 12px 16px;
+  margin: 8px;
+  border-radius: var(--border-radius);
+  font-family: inherit;
+  transition: var(--transition);
+}
+
+input {
+  width: 300px;
+  max-width: 100%;
+}
+
+button {
+  cursor: pointer;
+  font-weight: bold;
+}
+
+button:hover {
+  background: var(--primary);
+  color: var(--bg-dark);
+  box-shadow: var(--primary-glow);
+}
+
+.form-container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 2rem 0;
+  max-width: 500px;
+}
+
+.wallet-form {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 16px;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 24px;
+  border-radius: var(--border-radius);
+  border: 1px solid rgba(0, 255, 0, 0.2);
+  box-shadow: 0 0 20px rgba(0, 255, 0, 0.1);
+}
+
+.wallet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.5rem;
+  width: 100%;
+}
+
+.wallet-card {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--primary);
+  border-radius: var(--border-radius);
+  padding: 1.8rem;
+  transition: var(--transition);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 0 15px rgba(0, 255, 0, 0.15);
+}
+
+.wallet-card:hover {
+  box-shadow: var(--primary-glow);
+  transform: translateY(-4px);
+}
+
+.wallet-nickname {
+  font-size: 1.4rem;
+  margin: 0 0 0.8rem 0;
+  color: var(--primary);
+  text-shadow: 0 0 5px rgba(0, 255, 0, 0.5);
+}
+
+.wallet-address {
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 1.2rem;
+  color: var(--text-light);
+  background: rgba(0, 0, 0, 0.3);
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.wallet-balance {
+  font-size: 2rem;
+  font-weight: bold;
+  margin: 1rem 0;
+  color: var(--primary);
+  text-shadow: 0 0 8px rgba(0, 255, 0, 0.5);
+}
+
+.wallet-transaction-label {
+  margin-top: 1rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.3rem;
+}
+
+.wallet-transaction {
+  font-size: 0.85rem;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 10px;
+  border-radius: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin: 0.5rem 0 1rem 0;
+  word-break: break-all;
+  border: 1px solid rgba(0, 255, 0, 0.3);
+}
+
+.wallet-transaction a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.wallet-transaction a:hover {
+  text-decoration: underline;
+}
+
+.remove-btn {
+  background: rgba(50, 0, 0, 0.4);
+  border: 1px solid #ff3030;
+  color: #ff5050;
+  padding: 10px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 1.5rem;
+  transition: var(--transition);
+  width: 100%;
+  font-weight: bold;
+}
+
+.no-wallets {
+  margin-top: 2rem;
+  color: var(--text-secondary);
+  font-style: italic;
+  text-align: center;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .wallet-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .container {
+    padding: 1rem;
+  }
 }

@@ -6,22 +6,38 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "start-bot": "ts-node -P tsconfig.webhook.json bot.ts",
+    "webhook": "ts-node --esm webhook.ts",
+    "check-webhook": "ts-node -P tsconfig.webhook.json scripts/check-webhook.ts",
+    "test-webhook": "ts-node -P tsconfig.webhook.json scripts/test-webhook.ts",
+    "register-webhook": "ts-node -P tsconfig.webhook.json scripts/register-webhook.ts",
+    "test-discord": "ts-node -P tsconfig.webhook.json scripts/test-discord.ts",
+    "create-webhook": "node scripts/create-webhook.js"
   },
   "dependencies": {
+    "@solana/web3.js": "^1.98.0",
+    "axios": "^1.8.4",
+    "discord.js": "^14.18.0",
+    "dotenv": "^16.4.7",
+    "next": "15.2.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "next": "15.2.3"
+    "react-toastify": "^11.0.5",
+    "styled-components": "^6.1.16"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
+    "@types/react-toastify": "^4.0.2",
+    "@types/styled-components": "^5.1.34",
     "eslint": "^9",
     "eslint-config-next": "15.2.3",
-    "@eslint/eslintrc": "^3"
+    "tailwindcss": "^4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5"
   }
 }
