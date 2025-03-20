@@ -27,7 +27,7 @@ const getLocalWallets = () => {
   }
 };
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
     // Try to get wallets from Helius webhook first
     try {
@@ -35,14 +35,14 @@ export async function GET(req: NextRequest) {
         `https://api.helius.xyz/v0/webhooks/${process.env.HELIUS_WEBHOOK_ID}?api-key=${process.env.HELIUS_API_KEY}`
       );
       return NextResponse.json({ wallets: response.data.accountAddresses || [] });
-    } catch (error) {
+    } catch (fetchError) {
       console.log('Failed to get wallets from Helius, falling back to local storage');
       // Fall back to local storage if Helius fails
       const wallets = getLocalWallets();
       return NextResponse.json({ wallets });
     }
-  } catch (error) {
-    console.error('Error listing wallets:', error);
+  } catch (outerError) {
+    console.error('Error listing wallets:', outerError);
     return NextResponse.json({ error: 'Failed to list wallets' }, { status: 500 });
   }
 }

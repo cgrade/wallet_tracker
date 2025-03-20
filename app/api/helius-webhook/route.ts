@@ -5,8 +5,8 @@ import { getTokenMetadata } from '../../../utils/helius';
 import fs from 'fs';
 import path from 'path';
 
-// Create a logging function
-function logWebhookEvent(event: any) {
+// Create a logging function - fix any type
+function logWebhookEvent(event: Record<string, unknown>) {
   const logDir = path.join(process.cwd(), 'logs');
   
   // Create logs directory if it doesn't exist
@@ -21,23 +21,50 @@ function logWebhookEvent(event: any) {
   fs.appendFileSync(logFile, logEntry);
 }
 
+// Define interface for swap data
+interface SwapData {
+  inputMint: string;
+  outputMint: string;
+  inputAmount: number;
+  outputAmount: number;
+  fromUserAccount: string;
+  source: string;
+  [key: string]: unknown;
+}
+
+// Define a proper type for the transaction data
+interface TransactionData {
+  accountData?: unknown[];
+  description?: string;
+  events?: Record<string, unknown>;
+  fee?: number;
+  feePayer?: string;
+  nativeTransfers?: unknown[];
+  signature?: string;
+  type?: string;
+  swaps?: SwapData[]; // Define swaps as an array of SwapData
+  // Add other fields as needed
+  [key: string]: unknown;
+}
+
 export async function POST(req: NextRequest) {
   console.log('Helius webhook received a request');
   try {
-    const payload = await req.json();
-    console.log('Webhook payload received:', JSON.stringify(payload).slice(0, 200) + '...');
+    // Replace 'any' with our interface
+    const data = await req.json() as TransactionData[];
+    console.log('Webhook payload received:', JSON.stringify(data).slice(0, 200) + '...');
     
     // Log all events for debugging
-    if (Array.isArray(payload)) {
-      payload.forEach(event => logWebhookEvent(event));
+    if (Array.isArray(data)) {
+      data.forEach(event => logWebhookEvent(event as Record<string, unknown>));
     } else {
-      logWebhookEvent(payload);
+      logWebhookEvent(data as unknown as Record<string, unknown>);
     }
     
-    for (const event of payload) {
+    for (const event of data) {
       console.log(`Processing event of type: ${event.type}`);
       
-      if (event.type === 'SWAP' && event.swaps?.length > 0) {
+      if (event.type === 'SWAP' && event.swaps && event.swaps.length > 0) {
         console.log('Found SWAP event, preparing Discord notification');
         const swap = event.swaps[0];
         const inputMint = swap.inputMint;
@@ -75,8 +102,13 @@ export async function POST(req: NextRequest) {
         };
         
         try {
-          console.log('Sending to Discord webhook:', process.env.DISCORD_WEBHOOK_URL);
-          await axios.post(process.env.DISCORD_WEBHOOK_URL as string, message);
+          const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+          if (!webhookUrl) {
+            throw new Error('Discord webhook URL not configured');
+          }
+          
+          console.log('Sending to Discord webhook:', webhookUrl);
+          await axios.post(webhookUrl, message);
           console.log('Successfully sent to Discord');
         } catch (discordError) {
           console.error('Error sending to Discord:', discordError);
@@ -89,7 +121,7 @@ export async function POST(req: NextRequest) {
     
     return NextResponse.json({ message: 'Webhook processed' });
   } catch (error) {
-    console.error('Error processing webhook:', error);
+    console.error('Error processing webhook:', error instanceof Error ? error.message : String(error));
     return NextResponse.json({ error: 'Failed to process webhook' }, { status: 500 });
   }
 }
