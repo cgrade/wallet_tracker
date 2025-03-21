@@ -301,7 +301,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.log('Tracked wallet addresses:', walletAddresses);
     console.log('Tracked wallet addresses (exact format):', JSON.stringify(walletAddresses));
     
-    const payload = await req.json();
+  const payload = await req.json();
     console.log('Received webhook payload:', JSON.stringify(payload, null, 2));
     
     // Validate test payloads
@@ -537,15 +537,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 const source = formatDexName(swap.source || transaction.source || 'Unknown DEX');
                 
                 // Create Discord message
-                const message = {
-                  embeds: [
-                    {
+      const message = {
+        embeds: [
+          {
                       title: `🔄 ${inputTokenInfo.symbol} → ${outputTokenInfo.symbol}`,
                       color: 0x3498DB, // Blue for swaps
                       description: `**${walletDisplay}** swapped tokens on ${source}`,
                       url: `https://solscan.io/tx/${transaction.signature}`,
-                      fields: [
-                        {
+            fields: [
+              {
                           name: '💱 Swap Details',
                           value: `➡️ **Sent:** ${inputAmount} ${inputTokenInfo.symbol}\n` +
                                  `⬅️ **Received:** ${outputAmount} ${outputTokenInfo.symbol}\n` +
