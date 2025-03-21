@@ -1,0 +1,49 @@
+[
+    {
+        "type": "SWAP",
+        "signature": "5YG5FRbBFxQphp5hzYJqZ9Nq9QNGw4iYT9DssX38dP3B7fGbB79CvJ7VMj5LUsFxpCBa9o7MLAHwZTe3USH5WMvd",
+        "timestamp": 1717142483000,
+        "fee": 5000,
+        "feePayer": "YOUR_REAL_WALLET_HERE",
+        "nativeTransfers": [
+            {
+                "fromUserAccount": "YOUR_REAL_WALLET_HERE",
+                "toUserAccount": "someotheraddress1234567890123456789012",
+                "amount": 12500000
+            }
+        ],
+        "swaps": [
+            {
+                "inputMint": "So11111111111111111111111111111111111111112",
+                "outputMint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+                "inputAmount": 0.0125,
+                "outputAmount": 125000,
+                "fromUserAccount": "YOUR_REAL_WALLET_HERE",
+                "source": "Jupiter"
+            }
+        ]
+    },
+    {
+        "type": "TOKEN_TRANSFER",
+        "signature": "4Dik7m9QxUhbQ8SH8sYyfArvSBz6VdTgeZ1YjALPeqYJGV5jUBB8JKPkYLZQF1vyqULJFJv7QdQDU78jPnZDo4Rv",
+        "timestamp": 1717142584000,
+        "fee": 5000,
+        "feePayer": "testwalletaddress1234567890123456789012",
+        "nativeTransfers": [
+            {
+                "fromUserAccount": "testwalletaddress1234567890123456789012",
+                "toUserAccount": "someotheraddress1234567890123456789012",
+                "amount": 32500000
+            }
+        ],
+        "tokenTransfers": [
+            {
+                "fromUserAccount": "someotheraddress1234567890123456789012",
+                "toUserAccount": "testwalletaddress1234567890123456789012",
+                "tokenAmount": 5000,
+                "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+            }
+        ],
+        "description": "Buy via Raydium"
+    }
+]

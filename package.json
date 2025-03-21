@@ -12,9 +12,12 @@
     "check-webhook": "ts-node -P tsconfig.webhook.json scripts/check-webhook.ts",
     "test-webhook": "ts-node -P tsconfig.webhook.json scripts/test-webhook.ts",
     "register-webhook": "ts-node -P tsconfig.webhook.json scripts/register-webhook.ts",
+    "update-webhook": "ts-node -P tsconfig.webhook.json scripts/update-webhook.ts",
     "test-discord": "ts-node -P tsconfig.webhook.json scripts/test-discord.ts",
     "create-webhook": "node scripts/create-webhook.js",
-    "start-vercel-bot": "env-cmd -f .env.bot ts-node -P tsconfig.webhook.json bot.ts"
+    "start-vercel-bot": "env-cmd -f .env.bot ts-node -P tsconfig.webhook.json bot.ts",
+    "bot": "ts-node -P tsconfig.webhook.json bot.ts",
+    "bot:watch": "nodemon --exec ts-node -P tsconfig.webhook.json bot.ts"
   },
   "dependencies": {
     "@solana/web3.js": "^1.98.0",

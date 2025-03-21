@@ -1,38 +1,46 @@
-import dotenv from 'dotenv';
 import axios from 'axios';
+import dotenv from 'dotenv';
 
+// Load environment variables
 dotenv.config({ path: '.env.local' });
 
-async function updateWebhookAddresses() {
+async function updateWebhook() {
+  const webhookId = process.env.HELIUS_WEBHOOK_ID;
+  const apiKey = process.env.HELIUS_API_KEY;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  
+  if (!webhookId || !apiKey || !appUrl) {
+    console.error('Missing required environment variables');
+    return;
+  }
+  
+  // Remove any trailing slashes to prevent double slash
+  const baseUrl = appUrl.endsWith('/') ? appUrl.slice(0, -1) : appUrl;
+  
   try {
-    // Get current wallets from your API
-    const walletResponse = await axios.get(`${process.env.NEXT_PUBLIC_APP_URL}/api/list-wallets`);
-    const wallets = walletResponse.data.wallets;
+    // Log what we're trying to update
+    console.log(`Updating webhook to: ${baseUrl}/api/helius-webhook`);
     
-    if (!wallets || wallets.length === 0) {
-      console.log('No wallets to monitor yet');
-      return;
-    }
-    
-    // Convert to address strings if needed
-    const addresses = wallets.map(wallet => 
-      typeof wallet === 'string' ? wallet : wallet.address
-    );
-    
-    // Update the webhook with these addresses
     const response = await axios.put(
-      `https://api.helius.xyz/v0/webhooks/${process.env.HELIUS_WEBHOOK_ID}?api-key=${process.env.HELIUS_API_KEY}`,
+      `https://api.helius.xyz/v0/webhooks/${webhookId}?api-key=${apiKey}`,
       {
-        accountAddresses: addresses
+        webhookURL: `${baseUrl}/api/helius-webhook`,
+        transactionTypes: ["ANY"],
+        accountAddresses: [],
+        webhookType: "enhanced"
       }
     );
     
-    console.log('Updated webhook addresses:', addresses);
+    console.log('Webhook updated successfully:', response.data);
   } catch (error) {
-    const err = error as any;
-    console.error('Error updating webhook addresses:', 
-      axios.isAxiosError(err) ? err.response?.data || err.message : String(err));
+    console.error('Error updating webhook:', error);
+    
+    // Add more details for troubleshooting
+    if (axios.isAxiosError(error) && error.response) {
+      console.error('Response data:', error.response.data);
+      console.error('Status code:', error.response.status);
+    }
   }
 }
 
-updateWebhookAddresses(); 
+updateWebhook(); 

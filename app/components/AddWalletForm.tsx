@@ -12,50 +12,75 @@ interface AddWalletFormProps {
 export default function AddWalletForm({ onWalletAdded }: AddWalletFormProps) {
   const [address, setAddress] = useState("");
   const [nickname, setNickname] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!address) return;
 
-    setIsLoading(true);
+    if (!address) {
+      toast.error("Please enter a wallet address");
+      return;
+    }
+
+    setIsSubmitting(true);
+
     try {
-      await axios.post("/api/add-wallet", {
+      console.log(
+        `Submitting wallet: address=${address}, nickname=${nickname}`
+      );
+
+      const response = await axios.post("/api/add-wallet", {
         address,
-        nickname: nickname || `Wallet ${address.slice(0, 6)}...`,
+        nickname: nickname.trim() || `Wallet ${address.slice(0, 6)}...`,
       });
-      toast.success("Wallet added successfully");
-      setAddress("");
-      setNickname("");
-      onWalletAdded(); // Trigger refresh
+
+      if (response.data.success) {
+        toast.success("Wallet added successfully");
+        setAddress("");
+        setNickname("");
+        onWalletAdded();
+      } else {
+        toast.error(response.data.error || "Failed to add wallet");
+      }
     } catch (error) {
       console.error("Error adding wallet:", error);
       toast.error("Failed to add wallet");
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="form-container">
-      <form className="wallet-form" onSubmit={handleSubmit}>
-        <input
-          type="text"
-          value={address}
-          onChange={(e) => setAddress(e.target.value)}
-          placeholder="Enter wallet address"
-          required
-          disabled={isLoading}
-        />
-        <input
-          type="text"
-          value={nickname}
-          onChange={(e) => setNickname(e.target.value)}
-          placeholder="Nickname (optional)"
-          disabled={isLoading}
-        />
-        <button type="submit" disabled={isLoading}>
-          {isLoading ? "Adding..." : "Add Wallet"}
+    <div className="add-wallet-container">
+      <h2>Add Wallet to Track</h2>
+      <form onSubmit={handleSubmit} className="add-wallet-form">
+        <div className="form-group">
+          <label htmlFor="address">Solana Wallet Address</label>
+          <input
+            id="address"
+            type="text"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="Enter Solana wallet address"
+            disabled={isSubmitting}
+            required
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="nickname">Nickname (optional)</label>
+          <input
+            id="nickname"
+            type="text"
+            value={nickname}
+            onChange={(e) => setNickname(e.target.value)}
+            placeholder="Enter a nickname for this wallet"
+            disabled={isSubmitting}
+          />
+        </div>
+
+        <button type="submit" className="add-btn" disabled={isSubmitting}>
+          {isSubmitting ? "Adding..." : "Add Wallet"}
         </button>
       </form>
     </div>

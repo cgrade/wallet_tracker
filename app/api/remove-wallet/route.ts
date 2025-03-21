@@ -1,17 +1,30 @@
 // app/api/remove-wallet/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { removeWalletFromWebhook } from '../../../utils/helius';
+import { removeWallet } from '../../utils/db';
 
 export async function POST(req: NextRequest) {
-  const { address } = await req.json();
-  if (!address) {
-    return NextResponse.json({ error: 'Address is required' }, { status: 400 });
-  }
   try {
-    await removeWalletFromWebhook(address);
-    return NextResponse.json({ message: 'Wallet removed successfully' });
+    const { address } = await req.json();
+    
+    if (!address) {
+      return NextResponse.json(
+        { error: 'Wallet address is required' },
+        { status: 400 }
+      );
+    }
+    
+    const wallets = removeWallet(address);
+    
+    return NextResponse.json({
+      success: true,
+      message: 'Wallet removed successfully',
+      wallets
+    });
   } catch (error) {
     console.error('Error removing wallet:', error);
-    return NextResponse.json({ error: 'Failed to remove wallet' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Failed to remove wallet' },
+      { status: 500 }
+    );
   }
 }
