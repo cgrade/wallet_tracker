@@ -227,7 +227,6 @@ client.on(Events.MessageCreate, async (message) => {
   // List all wallets
   else if (command === 'list') {
     try {
-      // Get all wallets
       const wallets = getWallets();
       
       if (wallets.length === 0) {
@@ -235,11 +234,10 @@ client.on(Events.MessageCreate, async (message) => {
         return;
       }
       
-      // Get balances for each wallet (with safety checks)
+      // Get balances for each wallet
       const walletsWithBalance = await Promise.all(
         wallets.map(async (wallet) => {
           const address = wallet.address || "";
-          // Safely access wallet data
           const balance = await getWalletBalance(address);
           
           return {
@@ -249,51 +247,50 @@ client.on(Events.MessageCreate, async (message) => {
           };
         })
       );
-      
-      // Create a list embed
-      const embed = new EmbedBuilder()
-        .setColor(COLORS.INFO)
-        .setTitle(`🔍 Tracked Wallets (${walletsWithBalance.length})`)
-        .setDescription('Here are all the wallets currently being tracked:')
-        .setTimestamp();
-      
-      // Add each wallet as a field, with error protection and proper debugging
-      walletsWithBalance.forEach((wallet, index) => {
-        const nickname = wallet.nickname || `Wallet ${index + 1}`;
-        
-        // Check what type of data we're dealing with and log it for debugging
-        console.log(`Wallet ${index + 1} data:`, JSON.stringify(wallet, null, 2));
-        
-        // Get the address safely
-        let address = '';
-        if (typeof wallet === 'string') {
-          address = wallet;
-        } else if (wallet && typeof wallet === 'object') {
-          if (typeof wallet.address === 'string') {
-            address = wallet.address;
-          } else if (wallet.address && typeof wallet.address === 'object') {
-            // Handle nested address objects
-            address = wallet.address || JSON.stringify(wallet.address);
-          } else {
-            // Handle other cases
-            address = String(wallet.address || '');
-          }
-        }
-        
-        const addressText = address ? `\`${address}\`` : 'Invalid Address';
-        const explorerLink = address ? 
-          `[View on Solscan](https://solscan.io/account/${address})` : 
-          'Not available';
-        
-        embed.addFields({
-          name: `${index + 1}. ${nickname}`,
-          value: `Address: ${addressText}\nBalance: ${wallet.balance}\n${explorerLink}`,
-          inline: false
+
+      // Split wallets into chunks of 25 (Discord's field limit)
+      const chunks = [];
+      for (let i = 0; i < walletsWithBalance.length; i += 25) {
+        chunks.push(walletsWithBalance.slice(i, i + 25));
+      }
+
+      // Create an embed for each chunk
+      const embeds = chunks.map((chunk, pageIndex) => {
+        const embed = new EmbedBuilder()
+          .setColor(COLORS.INFO)
+          .setTitle(`🔍 Tracked Wallets (${walletsWithBalance.length})`)
+          .setDescription(`Page ${pageIndex + 1}/${chunks.length}`)
+          .setTimestamp();
+
+        // Add fields for this chunk
+        chunk.forEach((wallet, index) => {
+          const nickname = wallet.nickname || `Wallet ${(pageIndex * 25) + index + 1}`;
+          const address = typeof wallet === 'string' ? wallet : wallet.address;
+          const addressText = address ? `\`${address}\`` : 'Invalid Address';
+          const explorerLink = address ? 
+            `[View on Solscan](https://solscan.io/account/${address})` : 
+            'Not available';
+
+          embed.addFields({
+            name: `${(pageIndex * 25) + index + 1}. ${nickname}`,
+            value: `Address: ${addressText}\nBalance: ${wallet.balance}\n${explorerLink}`,
+            inline: false
+          });
         });
+
+        return embed;
       });
-      
-      await message.reply({ embeds: [embed] });
-      
+
+      // Send the first embed
+      await message.reply({ embeds: [embeds[0]] });
+
+      // If there are multiple pages, send them as separate messages
+      if (embeds.length > 1) {
+        for (let i = 1; i < embeds.length; i++) {
+          await message.channel.send({ embeds: [embeds[i]] });
+        }
+      }
+
     } catch (error) {
       console.error('Error listing wallets:', error);
       await message.reply('❌ Failed to list wallets. Please try again later.');

@@ -342,7 +342,7 @@ function formatMarketCap(marketCap: number | null): string {
   }
 }
 
-// Create Discord message for transaction
+// Create a new function to format the Discord message according to the requested format
 async function createDiscordMessageForTransaction(
   transaction: TransactionData, 
   walletInvolved: string,
@@ -406,12 +406,12 @@ async function createDiscordMessageForTransaction(
   // Title format: [Green/Red Emoji] [BUY/SELL] on [Dex] [Wallet Address] [Wallet Nickname]
   const title = `${emoji} ${action} on ${source} ${formatAddress(walletInvolved)} (${walletNickname})`;
   
-  // Description format: Complete wallet address + [Wallet Nickname] swapped [amount in] [token in] for [amount out] [token out] (USD) @ [price]
+  // Description format: [Wallet Nickname] swapped [amount in] [token in] for [amount out] [token out] (USD) @ [price]
   let description: string;
   if (isBuy) {
-    description = `${walletInvolved}\n\n${walletDisplay} swapped ${solAmount.toFixed(4)} SOL for ${formatCurrency(tokenAmount)} ${tokenInfo.symbol} (${formatUSD(tokenUSD)}) @ ${formatUSD(tokenPrice, true)}`;
+    description = `${walletDisplay} swapped ${solAmount.toFixed(4)} SOL for ${formatCurrency(tokenAmount)} ${tokenInfo.symbol} (${formatUSD(tokenUSD)}) @ ${formatUSD(tokenPrice, true)}`;
   } else {
-    description = `${walletInvolved}\n\n${walletDisplay} swapped ${formatCurrency(tokenAmount)} ${tokenInfo.symbol} for ${solAmount.toFixed(4)} SOL (${formatUSD(solUSD)}) @ ${formatUSD(tokenPrice, true)}`;
+    description = `${walletDisplay} swapped ${formatCurrency(tokenAmount)} ${tokenInfo.symbol} for ${solAmount.toFixed(4)} SOL (${formatUSD(solUSD)}) @ ${formatUSD(tokenPrice, true)}`;
   }
   
   // Create embedded message
@@ -499,10 +499,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
     
-    // Add debug logs
-    console.log('START PROCESSING WEBHOOK ======================');
-    console.log(`${new Date().toISOString()} - Processing ${payload.length} transactions`);
-    
     // Process each transaction in the payload
     for (const transaction of payload) {
       try {
@@ -574,8 +570,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           // Classify the transaction
           const classification = classifyTransaction(transaction, walletInvolved);
           console.log(`Transaction ${transaction.signature} classified as: ${classification.type}`);
-          console.log('Classification details:', JSON.stringify(classification.details, null, 2));
           
+          // Add SWAP handling right after classification but before BUY/SELL handling
+
           // SWAP transaction handling
           if (classification.type === 'SWAP') {
             console.log(`⭐ Processing SWAP transaction`);
@@ -616,162 +613,151 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 
                 console.log('Synthetic swap data created:', syntheticSwap);
                 
-                try {
-                  // Add this BEFORE using inputTokenInfo and outputTokenInfo in your message
-                  const [inputTokenInfo, outputTokenInfo] = await Promise.all([
-                    getTokenInfoWithHelius(syntheticSwap.inputMint, outgoingTransfers[0]),
-                    getTokenInfoWithHelius(syntheticSwap.outputMint, incomingTransfers[0])
-                  ]);
+                // Add this BEFORE using inputTokenInfo and outputTokenInfo in your message
+                const [inputTokenInfo, outputTokenInfo] = await Promise.all([
+                  getTokenInfoWithHelius(syntheticSwap.inputMint, outgoingTransfers[0]),
+                  getTokenInfoWithHelius(syntheticSwap.outputMint, incomingTransfers[0])
+                ]);
+                
+                // Calculate USD values if price available
+                const inputUSD = inputTokenInfo.price * (syntheticSwap.inputAmount || 0);
+                const outputUSD = outputTokenInfo.price * (syntheticSwap.outputAmount || 0);
+                
+                // Format amounts
+                const inputAmount = formatCurrency(syntheticSwap.inputAmount || 0);
+                const outputAmount = formatCurrency(syntheticSwap.outputAmount || 0);
+                
+                // Gas fee calculation
+                const gasFeeSOL = (transaction.fee || 0) / 1e9;
+                const gasFeeUSD = gasFeeSOL * (await getTokenInfo('So11111111111111111111111111111111111111112')).price;
+                
+                // Determine source/exchange
+                const source = formatDexName(syntheticSwap.source || transaction.source || 'Unknown DEX');
+                
+                // Get market cap of the relevant token (not SOL)
+                let marketCap = 'Unknown';
+                if (syntheticSwap.inputMint !== SOL_MINT && syntheticSwap.outputMint !== SOL_MINT) {
+                  // Try DexScreener first
+                  const dexMarketCap = await getTokenMarketCap(syntheticSwap.inputMint);
                   
-                  // Calculate USD values if price available
-                  const inputUSD = inputTokenInfo.price * (syntheticSwap.inputAmount || 0);
-                  const outputUSD = outputTokenInfo.price * (syntheticSwap.outputAmount || 0);
-                  
-                  // Format amounts
-                  const inputAmount = formatCurrency(syntheticSwap.inputAmount || 0);
-                  const outputAmount = formatCurrency(syntheticSwap.outputAmount || 0);
-                  
-                  // Gas fee calculation
-                  const gasFeeSOL = (transaction.fee || 0) / 1e9;
-                  const gasFeeUSD = gasFeeSOL * (await getTokenInfo('So11111111111111111111111111111111111111112')).price;
-                  
-                  // Determine source/exchange
-                  const source = formatDexName(syntheticSwap.source || transaction.source || 'Unknown DEX');
-                  
-                  // Get market cap of the relevant token (not SOL)
-                  let marketCap = 'Unknown';
-                  if (syntheticSwap.inputMint !== SOL_MINT && syntheticSwap.outputMint !== SOL_MINT) {
-                    // Try DexScreener first
-                    const dexMarketCap = await getTokenMarketCap(syntheticSwap.inputMint);
+                  if (dexMarketCap !== null) {
+                    marketCap = formatMarketCap(dexMarketCap);
+                  } else {
+                    // Fallback to calculation using supply × price
+                    const tokenSupply = await getTokenSupply(syntheticSwap.inputMint);
+                    const tokenPrice = syntheticSwap.inputMint === SOL_MINT ? outputTokenInfo.price : inputTokenInfo.price;
                     
-                    if (dexMarketCap !== null) {
-                      marketCap = formatMarketCap(dexMarketCap);
-                    } else {
-                      // Fallback to calculation using supply × price
-                      const tokenSupply = await getTokenSupply(syntheticSwap.inputMint);
-                      const tokenPrice = syntheticSwap.inputMint === SOL_MINT ? outputTokenInfo.price : inputTokenInfo.price;
-                      
-                      if (tokenSupply > 0 && tokenPrice > 0) {
-                        const calculatedCap = tokenSupply * tokenPrice;
-                        marketCap = formatMarketCap(calculatedCap);
-                      }
+                    if (tokenSupply > 0 && tokenPrice > 0) {
+                      const calculatedCap = tokenSupply * tokenPrice;
+                      marketCap = formatMarketCap(calculatedCap);
                     }
                   }
+                }
+                
+                // Determine transaction type (BUY, SELL, or SWAP)
+                let isBuy, isSell, isSwap;
+                isBuy = syntheticSwap.inputMint === SOL_MINT && syntheticSwap.outputMint !== SOL_MINT;
+                isSell = syntheticSwap.inputMint !== SOL_MINT && syntheticSwap.outputMint === SOL_MINT;
+                isSwap = syntheticSwap.inputMint !== SOL_MINT && syntheticSwap.outputMint !== SOL_MINT;
+
+                // Get token prices from Birdeye
+                const inputPrice = await getTokenPrice(syntheticSwap.inputMint);
+                const outputPrice = await getTokenPrice(syntheticSwap.outputMint);
+                inputTokenInfo.price = inputPrice;
+                outputTokenInfo.price = outputPrice;
+
+                let transactionType, relevantTokenMint, relevantTokenInfo, tokenAmount, solAmount;
+
+                if (isBuy) {
+                  transactionType = 'BUY';
+                  relevantTokenMint = syntheticSwap.outputMint;
+                  relevantTokenInfo = outputTokenInfo;
+                  tokenAmount = syntheticSwap.outputAmount;
+                  solAmount = syntheticSwap.inputAmount / 1e9; // Convert lamports to SOL
+                } else if (isSell) {
+                  transactionType = 'SELL';
+                  relevantTokenMint = syntheticSwap.inputMint;
+                  relevantTokenInfo = inputTokenInfo;
+                  tokenAmount = syntheticSwap.inputAmount;
+                  solAmount = syntheticSwap.outputAmount / 1e9; // Convert lamports to SOL
+                } else {
+                  transactionType = 'SWAP';
+                  // For swaps, use the output token as relevant
+                  relevantTokenMint = syntheticSwap.outputMint;
+                  relevantTokenInfo = outputTokenInfo;
+                  tokenAmount = syntheticSwap.outputAmount;
+                  solAmount = 0;
+                }
+
+                // Use the enhanced message formatter for all transaction types
+                if (isBuy || isSell) {
+                  const message = await createDiscordMessageForTransaction(
+                    transaction,
+                    walletInvolved,
+                    walletNickname || formatAddress(walletInvolved),
+                    isBuy,
+                    relevantTokenMint,
+                    relevantTokenInfo,
+                    tokenAmount,
+                    solAmount,
+                    source
+                  );
                   
-                  // Determine transaction type (BUY, SELL, or SWAP)
-                  let isBuy, isSell, isSwap;
-                  isBuy = syntheticSwap.inputMint === SOL_MINT && syntheticSwap.outputMint !== SOL_MINT;
-                  isSell = syntheticSwap.inputMint !== SOL_MINT && syntheticSwap.outputMint === SOL_MINT;
-                  isSwap = syntheticSwap.inputMint !== SOL_MINT && syntheticSwap.outputMint !== SOL_MINT;
-
-                  // Get token prices from Birdeye
-                  const inputPrice = await getTokenPrice(syntheticSwap.inputMint);
-                  const outputPrice = await getTokenPrice(syntheticSwap.outputMint);
-                  inputTokenInfo.price = inputPrice;
-                  outputTokenInfo.price = outputPrice;
-
-                  let transactionType, relevantTokenMint, relevantTokenInfo, tokenAmount, solAmount;
-
-                  if (isBuy) {
-                    transactionType = 'BUY';
-                    relevantTokenMint = syntheticSwap.outputMint;
-                    relevantTokenInfo = outputTokenInfo;
-                    tokenAmount = syntheticSwap.outputAmount;
-                    solAmount = syntheticSwap.inputAmount / 1e9; // Convert lamports to SOL
-                  } else if (isSell) {
-                    transactionType = 'SELL';
-                    relevantTokenMint = syntheticSwap.inputMint;
-                    relevantTokenInfo = inputTokenInfo;
-                    tokenAmount = syntheticSwap.inputAmount;
-                    solAmount = syntheticSwap.outputAmount / 1e9; // Convert lamports to SOL
-                  } else {
-                    transactionType = 'SWAP';
-                    // For swaps, use the output token as relevant
-                    relevantTokenMint = syntheticSwap.outputMint;
-                    relevantTokenInfo = outputTokenInfo;
-                    tokenAmount = syntheticSwap.outputAmount;
-                    solAmount = 0;
-                  }
-
-                  // Use the enhanced message formatter for all transaction types
-                  if (isBuy || isSell) {
-                    const message = await createDiscordMessageForTransaction(
-                      transaction,
-                      walletInvolved,
-                      walletNickname || formatAddress(walletInvolved),
-                      isBuy,
-                      relevantTokenMint,
-                      relevantTokenInfo,
-                      tokenAmount,
-                      solAmount,
-                      source
-                    );
-                    
-                    // Send to Discord webhook
-                    console.log('SENDING TO DISCORD ======================');
-                    console.log(`${new Date().toISOString()} - Sending ${isBuy ? 'BUY' : (isSell ? 'SELL' : 'SWAP')} notification to Discord`);
-                    const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
-                    if (webhookUrl) {
-                      console.log('Webhook URL:', webhookUrl.substring(0, 25) + '...');
-                      console.log('Message preview:', JSON.stringify(message).substring(0, 200) + '...');
+                  // Send to Discord webhook
+                  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+                  if (webhookUrl) {
+                    try {
                       await sendDiscordWebhook(webhookUrl, message);
                       console.log(`✅ Successfully sent ${transactionType} notification to Discord!`);
-                    } else {
-                      console.error('❌ Discord webhook URL not configured');
-                    }
-                  } else {
-                    // For token-to-token swaps, create a simplified message for speed
-                    const message = {
-                      embeds: [{
-                        title: `🔄 SWAP on ${source}`,
-                        description: `${walletNickname || formatAddress(walletInvolved)} swapped ${formatCurrency(syntheticSwap.inputAmount)} ${inputTokenInfo.symbol} for ${formatCurrency(syntheticSwap.outputAmount)} ${outputTokenInfo.symbol}`,
-                        color: 0x3498DB,
-                        fields: [
-                          {
-                            name: walletNickname || formatAddress(walletInvolved),
-                            value: `${inputTokenInfo.symbol}: -${formatCurrency(syntheticSwap.inputAmount)}\n` +
-                                   `${outputTokenInfo.symbol}: +${formatCurrency(syntheticSwap.outputAmount)}`,
-                            inline: false
-                          },
-                          {
-                            name: 'Links',
-                            value: `[View Transaction](https://solscan.io/tx/${transaction.signature})\n` +
-                                   `[${outputTokenInfo.symbol} Chart](https://dexscreener.com/solana/${syntheticSwap.outputMint})`,
-                            inline: false
-                          }
-                        ],
-                        footer: {
-                          text: source
-                        },
-                        timestamp: new Date().toISOString()
-                      }]
-                    };
-                    
-                    // Send to Discord webhook
-                    console.log('Sending SWAP notification');
-                    const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
-                    if (webhookUrl) {
-                      try {
-                        console.log("Attempting to send to Discord with URL:", webhookUrl.substring(0, 30) + "...");
-                        await sendDiscordWebhook(webhookUrl, message);
-                        console.log('✅ Successfully sent SWAP notification to Discord!');
-                      } catch (error) {
-                        console.error('❌ Failed to send to Discord:', (error as Error).message);
-                      }
-                    } else {
-                      console.error('Discord webhook URL not configured');
+                    } catch (error) {
+                      console.error('❌ Failed to send to Discord:', (error as Error).message);
                     }
                   }
-                } catch (error) {
-                  console.error('Error processing synthetic swap data:', (error as Error).message);
+                } else {
+                  // For token-to-token swaps, create a simplified message for speed
+                  const message = {
+                    embeds: [{
+                      title: `🔄 SWAP on ${source}`,
+                      description: `${walletNickname || formatAddress(walletInvolved)} swapped ${formatCurrency(syntheticSwap.inputAmount)} ${inputTokenInfo.symbol} for ${formatCurrency(syntheticSwap.outputAmount)} ${outputTokenInfo.symbol}`,
+                      color: 0x3498DB,
+                      fields: [
+                        {
+                          name: walletNickname || formatAddress(walletInvolved),
+                          value: `${inputTokenInfo.symbol}: -${formatCurrency(syntheticSwap.inputAmount)}\n` +
+                                 `${outputTokenInfo.symbol}: +${formatCurrency(syntheticSwap.outputAmount)}`,
+                          inline: false
+                        },
+                        {
+                          name: 'Links',
+                          value: `[View Transaction](https://solscan.io/tx/${transaction.signature})\n` +
+                                 `[${outputTokenInfo.symbol} Chart](https://dexscreener.com/solana/${syntheticSwap.outputMint})`,
+                          inline: false
+                        }
+                      ],
+                      footer: {
+                        text: source
+                      },
+                      timestamp: new Date().toISOString()
+                    }]
+                  };
+                  
+                  // Send to Discord webhook
+                  console.log('Sending SWAP notification');
+                  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+                  if (webhookUrl) {
+                    try {
+                      await sendDiscordWebhook(webhookUrl, message);
+                      console.log('✅ Successfully sent SWAP notification to Discord!');
+                    } catch (error) {
+                      console.error('❌ Failed to send to Discord:', (error as Error).message);
+                    }
+                  } else {
+                    console.error('Discord webhook URL not configured');
+                  }
                 }
-              } else {
-                // Handle regular swap data
-                console.log('Using existing swap data');
-                // Add code here to process regular swap data if needed
+              } catch (error) {
+                console.error('Error processing SWAP transaction:', (error as Error).message);
               }
-            } catch (error) {
-              console.error('Error processing SWAP transaction:', (error as Error).message);
             }
           }
           
@@ -846,19 +832,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 );
                 
                 // Send to Discord webhook
-                console.log('SENDING TO DISCORD ======================');
-                console.log(`${new Date().toISOString()} - Sending notification to Discord`);
+                console.log(`Sending ${isBuy ? 'BUY' : 'SELL'} Discord notification`);
                 const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
                 if (webhookUrl) {
-                  console.log('Webhook URL:', webhookUrl.substring(0, 25) + '...');
-                  console.log('Message preview:', JSON.stringify(message).substring(0, 200) + '...');
-                  await sendDiscordWebhook(webhookUrl, message);
-                  console.log(`✅ Successfully sent ${isBuy ? 'BUY' : 'SELL'} notification to Discord!`);
+                  try {
+                    await sendDiscordWebhook(webhookUrl, message);
+                    console.log(`✅ Successfully sent ${isBuy ? 'BUY' : 'SELL'} notification to Discord!`);
+                  } catch (error) {
+                    console.error('❌ Failed to send to Discord:', (error as Error).message);
+                  }
                 } else {
-                  console.error('❌ Discord webhook URL not configured');
+                  console.error('Discord webhook URL not configured');
                 }
               } catch (error) {
-                console.error('❌ Failed to send to Discord:', (error as Error).message);
+                console.error('Error processing BUY/SELL transaction:', (error as Error).message);
               }
             }
           }
@@ -867,13 +854,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         console.error('Error processing transaction:', (error as Error).message);
       }
     }
+    
+    return new NextResponse(JSON.stringify({ success: true }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': '1'
+      },
+    });
   } catch (error) {
     console.error('Error processing webhook:', (error as Error).message);
-    return NextResponse.json(
-      { error: 'Error processing webhook' },
-      { status: 500 }
-    );
+    return new NextResponse(JSON.stringify({ error: 'Failed to process webhook' }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': '1'
+      },
+    });
   }
-  
-  return NextResponse.json({ success: true, message: 'Webhook processed successfully' });
 }

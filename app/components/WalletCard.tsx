@@ -16,18 +16,23 @@ interface WalletData {
   nickname: string;
   balance: number;
   lastTransaction: string;
+  transactionType?: string;
 }
 
 // Update the connection initialization to be more robust
 const getConnection = () => {
-  if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_HELIUS_API_KEY) {
-    // Client-side with API key
-    return new Connection(
-      `https://rpc.helius.xyz/?api-key=${process.env.NEXT_PUBLIC_HELIUS_API_KEY}`
-    );
+  const rpcUrl =
+    process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
+    "https://api.mainnet-beta.solana.com";
+  console.log("Using RPC URL:", rpcUrl); // For debugging
+
+  try {
+    return new Connection(rpcUrl);
+  } catch (error) {
+    console.error("Error creating connection:", error);
+    // Fallback to public endpoint
+    return new Connection("https://api.mainnet-beta.solana.com");
   }
-  // Fallback to public endpoint
-  return new Connection("https://api.mainnet-beta.solana.com");
 };
 
 const connection = getConnection();

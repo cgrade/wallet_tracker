@@ -30,6 +30,9 @@ export async function sendDiscordWebhook(url: string, message: any): Promise<voi
       throw new Error('Invalid Discord webhook URL format');
     }
     
+    // Add debug logging before making the request
+    console.log('Making request to Discord webhook URL...');
+    
     // Add timeout and better error handling
     const response = await axios.post(url, message, {
       timeout: 10000, // 10 second timeout
@@ -126,6 +129,9 @@ async function processQueue() {
 export function isValidWebhookUrl(url: string): boolean {
   // Discord webhook URLs follow this pattern:
   // https://discord.com/api/webhooks/webhook_id/webhook_token
-  const pattern = /^https:\/\/discord\.com\/api\/webhooks\/\d+\/[\w-]+$/;
+  // Relaxed pattern to handle potential variations
+  const pattern = /^https:\/\/discord\.com\/api\/webhooks\/\d+\/[\w\-]+$/;
+  console.log("Validating webhook URL:", url);
+  console.log("Is valid:", pattern.test(url));
   return pattern.test(url);
 } 

@@ -59,7 +59,12 @@ export function getWallets(): WalletEntry[] {
           fs.writeFileSync(WALLETS_FILE, JSON.stringify(wallets, null, 2));
           return wallets;
         }
-        return parsed;
+        
+        // Normalize addresses (remove spaces)
+        return parsed.map(wallet => ({
+          ...wallet,
+          address: wallet.address.trim()
+        }));
       }
       return [];
     }
