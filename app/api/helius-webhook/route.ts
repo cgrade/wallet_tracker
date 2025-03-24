@@ -46,6 +46,7 @@ interface TokenTransfer {
   toUserAccount: string;
   symbol?: string;
   name?: string;
+  tokenStandard?: string;  // Adding tokenStandard property
 }
 
 // Token information cache to reduce API calls
@@ -275,9 +276,9 @@ async function getTokenInfo(mint: string): Promise<TokenInfo> {
   return getTokenInfoWithHelius(mint);
 }
 
-// Improved transaction classification function
+// Enhanced transaction classification function to include transfers
 function classifyTransaction(transaction: TransactionData, walletInvolved: string): {
-  type: 'SWAP' | 'BUY' | 'SELL' | 'UNKNOWN';
+  type: 'SWAP' | 'BUY' | 'SELL' | 'RECEIVE_TOKEN' | 'SEND_TOKEN' | 'RECEIVE_SOL' | 'SEND_SOL' | 'NFT_MINT' | 'NFT_TRANSFER' | 'UNKNOWN';
   details: any;
 } {
   // Check for SWAP
@@ -285,19 +286,75 @@ function classifyTransaction(transaction: TransactionData, walletInvolved: strin
     return { type: 'SWAP', details: transaction.swaps?.[0] || {} };
   }
   
-  // Check for BUY/SELL with token transfers
+  // Check for native SOL transfers
+  if (transaction.nativeTransfers && transaction.nativeTransfers.length > 0) {
+    const nativeTransfer = transaction.nativeTransfers.find((nt: any) => 
+      nt.fromUserAccount === walletInvolved || nt.toUserAccount === walletInvolved
+    ) as NativeTransfer;
+    
+    if (nativeTransfer) {
+      // Check if this is just a SOL transfer with no token transfers involved
+      const hasRelatedTokenTransfer = transaction.tokenTransfers?.some((tt: any) => 
+        tt.fromUserAccount === walletInvolved || tt.toUserAccount === walletInvolved
+      );
+      
+      // If there's no related token transfer, it's a simple SOL transfer
+      if (!hasRelatedTokenTransfer) {
+        if (nativeTransfer.toUserAccount === walletInvolved) {
+          return { type: 'RECEIVE_SOL', details: { nativeTransfer } };
+        } else {
+          return { type: 'SEND_SOL', details: { nativeTransfer } };
+        }
+      }
+    }
+  }
+  
+  // Check for token transfers
   if (transaction.tokenTransfers && transaction.tokenTransfers.length > 0) {
     const tokenTransfer = transaction.tokenTransfers.find((tt: any) => 
       tt.fromUserAccount === walletInvolved || tt.toUserAccount === walletInvolved
     ) as TokenTransfer;
     
     if (tokenTransfer) {
-      const isTokenIncoming = tokenTransfer.toUserAccount === walletInvolved;
+      // Check if this is an NFT transfer (can be identified by amount and token standard)
+      const isNFT = tokenTransfer.tokenAmount === 1 && 
+                    (tokenTransfer.tokenStandard === 'NonFungible' || 
+                     transaction.type === 'NFT_TRANSFER' ||
+                     transaction.description?.includes('NFT'));
+      
+      if (isNFT) {
+        return { 
+          type: 'NFT_TRANSFER', 
+          details: { tokenTransfer, isReceiving: tokenTransfer.toUserAccount === walletInvolved } 
+        };
+      }
+      
+      // Check if it's a simple token transfer with no swap involved
+      const isReceiving = tokenTransfer.toUserAccount === walletInvolved;
+      const hasMatchingNativeTransfer = transaction.nativeTransfers?.some((nt: any) => 
+        (isReceiving && nt.fromUserAccount === tokenTransfer.fromUserAccount) ||
+        (!isReceiving && nt.toUserAccount === tokenTransfer.toUserAccount)
+      );
+      
+      // If there's a matching native transfer, it's likely a BUY/SELL 
+      if (hasMatchingNativeTransfer) {
+        return { 
+          type: isReceiving ? 'BUY' : 'SELL', 
+          details: { tokenTransfer } 
+        };
+      }
+      
+      // Otherwise it's a simple token transfer
       return { 
-        type: isTokenIncoming ? 'BUY' : 'SELL', 
+        type: isReceiving ? 'RECEIVE_TOKEN' : 'SEND_TOKEN', 
         details: { tokenTransfer } 
       };
     }
+  }
+  
+  // Check for NFT minting 
+  if (transaction.type === 'NFT_MINT' || transaction.description?.includes('Mint')) {
+    return { type: 'NFT_MINT', details: transaction };
   }
   
   return { type: 'UNKNOWN', details: null };
@@ -468,11 +525,226 @@ async function getTokenMarketCapFormatted(tokenMint: string): Promise<string> {
   return 'Unknown';
 }
 
+// Create Discord message for token transfer
+async function createDiscordMessageForTokenTransfer(
+  transaction: TransactionData, 
+  walletInvolved: string,
+  walletNickname: string,
+  isReceiving: boolean,
+  tokenTransfer: TokenTransfer
+): Promise<any> {
+  const walletDisplay = walletNickname || formatAddress(walletInvolved);
+  
+  // Get token info
+  const tokenInfo = await getTokenInfoWithHelius(tokenTransfer.mint, tokenTransfer);
+  
+  // Set token name to the token symbol if available, or use the token name
+  const tokenName = tokenInfo.symbol || tokenInfo.name;
+  
+  // Get token price and calculate USD value
+  const tokenPrice = await getTokenPriceWithCache(tokenTransfer.mint);
+  const tokenUSD = tokenPrice * tokenTransfer.tokenAmount;
+  
+  // Format amounts
+  const tokenAmount = formatCurrency(tokenTransfer.tokenAmount);
+  
+  // Get market cap
+  const marketCap = await getTokenMarketCapFormatted(tokenTransfer.mint);
+  
+  // Create links for token charts
+  const birdeyeLink = `[BE](https://birdeye.so/token/${tokenTransfer.mint}?chain=solana)`;
+  const dexscreenerLink = `[DS](https://dexscreener.com/solana/${tokenTransfer.mint})`;
+  const photonLink = `[PH](https://photon.com/token/${tokenTransfer.mint})`;
+  
+  // Determine emoji, action, and color
+  const emoji = isReceiving ? '🟢' : '🔴';
+  const action = isReceiving ? 'Received TOKEN' : 'Sent TOKEN';
+  const color = isReceiving ? 0x2ECC71 : 0xE74C3C; // Green for receiving, Red for sending
+  
+  // Title format: [emoji] [Received/Sent] TOKEN on Solana [Wallet Address] [(Nickname)]
+  let title = `${emoji} ${action.replace('TOKEN', tokenName)} on Solana`;
+  if (walletNickname) {
+    title += ` ${formatAddress(walletInvolved)} (${walletNickname})`;
+  } else {
+    title += ` ${formatAddress(walletInvolved)}`;
+  }
+  
+  // Description format
+  const otherParty = isReceiving ? 
+    formatAddress(tokenTransfer.fromUserAccount) : 
+    formatAddress(tokenTransfer.toUserAccount);
+    
+  const description = `${walletInvolved}\n\n${walletDisplay} ${isReceiving ? 'received' : 'sent'} ${tokenAmount} ${tokenName} (${formatUSD(tokenUSD)}) ${isReceiving ? 'from' : 'to'} ${otherParty}`;
+  
+  // Create embedded message
+  const embed = {
+    title,
+    description,
+    color,
+    fields: [
+      {
+        name: walletDisplay,
+        value: `${tokenName}: ${isReceiving ? '+' : '-'}${tokenAmount} (${isReceiving ? '+' : '-'}${formatUSD(tokenUSD)})`,
+        inline: false
+      },
+      {
+        // Token metrics field
+        name: 'Token Metrics',
+        value: `MC: ${marketCap}\nSeen: ${formatTimeSince(transaction.timestamp || Math.floor(Date.now() / 1000))}\n${birdeyeLink} | ${dexscreenerLink} | ${photonLink}\nToken Address: ${tokenTransfer.mint}`,
+        inline: false
+      }
+    ],
+    timestamp: new Date().toISOString()
+  };
+  
+  return { embeds: [embed] };
+}
+
+// Create Discord message for SOL transfer
+async function createDiscordMessageForSOLTransfer(
+  transaction: TransactionData, 
+  walletInvolved: string,
+  walletNickname: string,
+  isReceiving: boolean,
+  nativeTransfer: NativeTransfer
+): Promise<any> {
+  const walletDisplay = walletNickname || formatAddress(walletInvolved);
+  
+  // Get SOL price and calculate USD value
+  const solPrice = await getTokenPriceWithCache(SOL_MINT);
+  const solAmount = nativeTransfer.amount / 1e9; // Convert from lamports to SOL
+  const solUSD = solPrice * solAmount;
+  
+  // Determine emoji, action, and color
+  const emoji = isReceiving ? '🟢' : '🔴';
+  const action = isReceiving ? 'Received SOL' : 'Sent SOL';
+  const color = isReceiving ? 0x2ECC71 : 0xE74C3C; // Green for receiving, Red for sending
+  
+  // Title format: [emoji] [Received/Sent] SOL on Solana [Wallet Address] [(Nickname)]
+  let title = `${emoji} ${action} on Solana`;
+  if (walletNickname) {
+    title += ` ${formatAddress(walletInvolved)} (${walletNickname})`;
+  } else {
+    title += ` ${formatAddress(walletInvolved)}`;
+  }
+  
+  // Description format
+  const otherParty = isReceiving ? 
+    formatAddress(nativeTransfer.fromUserAccount) : 
+    formatAddress(nativeTransfer.toUserAccount);
+    
+  const description = `${walletInvolved}\n\n${walletDisplay} ${isReceiving ? 'received' : 'sent'} ${solAmount.toFixed(4)} SOL (${formatUSD(solUSD)}) ${isReceiving ? 'from' : 'to'} ${otherParty}`;
+  
+  // Create embedded message
+  const embed = {
+    title,
+    description,
+    color,
+    fields: [
+      {
+        name: walletDisplay,
+        value: `SOL: ${isReceiving ? '+' : '-'}${solAmount.toFixed(4)} (${isReceiving ? '+' : '-'}${formatUSD(solUSD)})`,
+        inline: false
+      },
+      {
+        // Transaction details field
+        name: 'Transaction Details',
+        value: `Seen: ${formatTimeSince(transaction.timestamp || Math.floor(Date.now() / 1000))}\n[Solscan](https://solscan.io/tx/${transaction.signature})`,
+        inline: false
+      }
+    ],
+    timestamp: new Date().toISOString()
+  };
+  
+  return { embeds: [embed] };
+}
+
+// Create Discord message for NFT transfer or mint
+async function createDiscordMessageForNFTActivity(
+  transaction: TransactionData, 
+  walletInvolved: string,
+  walletNickname: string,
+  activityType: 'MINT' | 'RECEIVE' | 'SEND',
+  details: any
+): Promise<any> {
+  const walletDisplay = walletNickname || formatAddress(walletInvolved);
+  
+  // For NFT transfer, we need to extract information differently
+  let nftMint: string, nftName: string;
+  
+  if (activityType === 'MINT') {
+    // Handle mint case
+    nftMint = details.mint || details.tokenTransfer?.mint || '';
+    nftName = details.name || 'NFT';
+  } else {
+    // Handle transfer case
+    const tokenTransfer = details.tokenTransfer as TokenTransfer;
+    nftMint = tokenTransfer.mint || '';
+    nftName = tokenTransfer.name || tokenTransfer.symbol || 'NFT';
+  }
+  
+  // Determine emoji, action, and color
+  let emoji, action, color;
+  if (activityType === 'MINT') {
+    emoji = '🎨';
+    action = 'Minted NFT';
+    color = 0x9B59B6; // Purple for mint
+  } else if (activityType === 'RECEIVE') {
+    emoji = '🟢';
+    action = 'Received NFT';
+    color = 0x2ECC71; // Green for receiving
+  } else {
+    emoji = '🔴';
+    action = 'Sent NFT';
+    color = 0xE74C3C; // Red for sending
+  }
+  
+  // Title format: [emoji] [Minted/Received/Sent] NFT on Solana [Wallet Address] [(Nickname)]
+  let title = `${emoji} ${action} on Solana`;
+  if (walletNickname) {
+    title += ` ${formatAddress(walletInvolved)} (${walletNickname})`;
+  } else {
+    title += ` ${formatAddress(walletInvolved)}`;
+  }
+  
+  // Description format
+  let description = `${walletInvolved}\n\n${walletDisplay} ${activityType.toLowerCase()}ed ${nftName}`;
+  
+  if (activityType === 'RECEIVE') {
+    description += ` from ${formatAddress(details.tokenTransfer.fromUserAccount)}`;
+  } else if (activityType === 'SEND') {
+    description += ` to ${formatAddress(details.tokenTransfer.toUserAccount)}`;
+  }
+  
+  // Create embedded message
+  const embed = {
+    title,
+    description,
+    color,
+    fields: [
+      {
+        name: 'NFT Details',
+        value: `Name: ${nftName}\nMint: ${nftMint}\nSeen: ${formatTimeSince(transaction.timestamp || Math.floor(Date.now() / 1000))}`,
+        inline: false
+      },
+      {
+        name: 'Links',
+        value: `[Solscan](https://solscan.io/tx/${transaction.signature})\n[Magic Eden](https://magiceden.io/item-details/${nftMint})`,
+        inline: false
+      }
+    ],
+    timestamp: new Date().toISOString()
+  };
+  
+  return { embeds: [embed] };
+}
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
   console.log("======= WEBHOOK RECEIVED =======");
   console.log("Time:", new Date().toISOString());
   console.log("Headers:", JSON.stringify(Object.fromEntries([...req.headers.entries()]), null, 2));
   console.log("Discord URL configured:", !!process.env.DISCORD_WEBHOOK_URL);
+  console.log("Discord Webhook URL (first 30 chars):", process.env.DISCORD_WEBHOOK_URL?.substring(0, 30));
   
   try {
     // Get tracked wallets
@@ -488,11 +760,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     
     // Validate test payloads
     if (req.headers.get('x-test-event') === 'true') {
+      console.log("TEST EVENT detected via header");
       return NextResponse.json({ success: true, message: 'Test event received' });
     }
     
     // Validate webhook payload
     if (!Array.isArray(payload)) {
+      console.error("ERROR: Payload is not an array!");
       return NextResponse.json(
         { error: 'Invalid payload format' },
         { status: 400 }
@@ -514,21 +788,36 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         // Add fee payer
         if (transaction.feePayer) {
           addressesInTransaction.add(transaction.feePayer);
+          console.log(`Found fee payer: ${transaction.feePayer}`);
         }
         
         // Add native transfer addresses
         if (transaction.nativeTransfers) {
-          transaction.nativeTransfers.forEach((transfer: any) => {
-            if (transfer.fromUserAccount) addressesInTransaction.add(transfer.fromUserAccount);
-            if (transfer.toUserAccount) addressesInTransaction.add(transfer.toUserAccount);
+          console.log(`Found ${transaction.nativeTransfers.length} native transfers`);
+          transaction.nativeTransfers.forEach((transfer: any, index: number) => {
+            if (transfer.fromUserAccount) {
+              addressesInTransaction.add(transfer.fromUserAccount);
+              console.log(`Native transfer ${index}: from ${transfer.fromUserAccount}`);
+            }
+            if (transfer.toUserAccount) {
+              addressesInTransaction.add(transfer.toUserAccount);
+              console.log(`Native transfer ${index}: to ${transfer.toUserAccount}`);
+            }
           });
         }
         
         // Add token transfer addresses
         if (transaction.tokenTransfers) {
-          transaction.tokenTransfers.forEach((transfer: any) => {
-            if (transfer.fromUserAccount) addressesInTransaction.add(transfer.fromUserAccount);
-            if (transfer.toUserAccount) addressesInTransaction.add(transfer.toUserAccount);
+          console.log(`Found ${transaction.tokenTransfers.length} token transfers`);
+          transaction.tokenTransfers.forEach((transfer: any, index: number) => {
+            if (transfer.fromUserAccount) {
+              addressesInTransaction.add(transfer.fromUserAccount);
+              console.log(`Token transfer ${index}: from ${transfer.fromUserAccount}`);
+            }
+            if (transfer.toUserAccount) {
+              addressesInTransaction.add(transfer.toUserAccount);
+              console.log(`Token transfer ${index}: to ${transfer.toUserAccount}`);
+            }
           });
         }
         
@@ -549,7 +838,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         // Process each matching wallet
         for (const walletInvolved of matchingWallets) {
           console.log(`Looking for wallet: ${walletInvolved}`);
-          console.log(`Available wallets: ${JSON.stringify(wallets).substring(0, 100)}...`);
+          console.log(`Available wallets: ${JSON.stringify(wallets).substring(0, 500)}`);
           
           // Find wallet object to get nickname
           const walletObj = wallets.find((w: any) => 
@@ -575,6 +864,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           const classification = classifyTransaction(transaction, walletInvolved);
           console.log(`Transaction ${transaction.signature} classified as: ${classification.type}`);
           console.log('Classification details:', JSON.stringify(classification.details, null, 2));
+          
+          // Check Discord webhook before proceeding
+          const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+          if (!webhookUrl) {
+            console.error('❌ Discord webhook URL not configured - aborting notification');
+            continue;
+          }
           
           // SWAP transaction handling
           if (classification.type === 'SWAP') {
@@ -710,7 +1006,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                     // Send to Discord webhook
                     console.log('SENDING TO DISCORD ======================');
                     console.log(`${new Date().toISOString()} - Sending ${isBuy ? 'BUY' : (isSell ? 'SELL' : 'SWAP')} notification to Discord`);
-                    const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
                     if (webhookUrl) {
                       console.log('Webhook URL:', webhookUrl.substring(0, 25) + '...');
                       console.log('Message preview:', JSON.stringify(message).substring(0, 200) + '...');
@@ -749,7 +1044,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                     
                     // Send to Discord webhook
                     console.log('Sending SWAP notification');
-                    const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
                     if (webhookUrl) {
                       try {
                         console.log("Attempting to send to Discord with URL:", webhookUrl.substring(0, 30) + "...");
@@ -848,7 +1142,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 // Send to Discord webhook
                 console.log('SENDING TO DISCORD ======================');
                 console.log(`${new Date().toISOString()} - Sending notification to Discord`);
-                const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
                 if (webhookUrl) {
                   console.log('Webhook URL:', webhookUrl.substring(0, 25) + '...');
                   console.log('Message preview:', JSON.stringify(message).substring(0, 200) + '...');
@@ -860,6 +1153,137 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               } catch (error) {
                 console.error('❌ Failed to send to Discord:', (error as Error).message);
               }
+            }
+          }
+          
+          // Token transfer handling
+          if (buySellClassification.type === 'RECEIVE_TOKEN' || buySellClassification.type === 'SEND_TOKEN') {
+            const isReceiving = buySellClassification.type === 'RECEIVE_TOKEN';
+            console.log(`⭐ Processing ${isReceiving ? 'RECEIVE_TOKEN' : 'SEND_TOKEN'} transaction`);
+            
+            if (transaction.tokenTransfers && transaction.tokenTransfers.length > 0) {
+              try {
+                // Get the relevant token transfer
+                const relevantTransfers = transaction.tokenTransfers.filter((tt: any) => {
+                  const transfer = tt as TokenTransfer;
+                  return transfer.fromUserAccount === walletInvolved || transfer.toUserAccount === walletInvolved;
+                });
+                
+                if (relevantTransfers.length === 0) {
+                  console.log('No relevant token transfers found');
+                  continue;
+                }
+                
+                const tokenTransfer = relevantTransfers[0];
+                
+                // Get token information
+                const tokenInfo = await getTokenInfoWithHelius(
+                  tokenTransfer.mint,
+                  tokenTransfer
+                );
+                
+                // Format and send Discord message using the new function
+                const message = await createDiscordMessageForTokenTransfer(
+                  transaction,
+                  walletInvolved,
+                  walletNickname || formatAddress(walletInvolved),
+                  isReceiving,
+                  tokenTransfer
+                );
+                
+                // Send to Discord webhook
+                console.log('SENDING TO DISCORD ======================');
+                console.log(`${new Date().toISOString()} - Sending notification to Discord`);
+                if (webhookUrl) {
+                  console.log('Webhook URL:', webhookUrl.substring(0, 25) + '...');
+                  console.log('Message preview:', JSON.stringify(message).substring(0, 200) + '...');
+                  await sendDiscordWebhook(webhookUrl, message);
+                  console.log(`✅ Successfully sent ${isReceiving ? 'RECEIVE_TOKEN' : 'SEND_TOKEN'} notification to Discord!`);
+                } else {
+                  console.error('❌ Discord webhook URL not configured');
+                }
+              } catch (error) {
+                console.error('❌ Failed to send to Discord:', (error as Error).message);
+              }
+            }
+          }
+          
+          // SOL transfer handling
+          if (buySellClassification.type === 'RECEIVE_SOL' || buySellClassification.type === 'SEND_SOL') {
+            const isReceiving = buySellClassification.type === 'RECEIVE_SOL';
+            console.log(`⭐ Processing ${isReceiving ? 'RECEIVE_SOL' : 'SEND_SOL'} transaction`);
+            
+            if (transaction.nativeTransfers && transaction.nativeTransfers.length > 0) {
+              try {
+                // Get the relevant SOL transfer
+                const relevantTransfers = transaction.nativeTransfers.filter((nt: any) => {
+                  const transfer = nt as NativeTransfer;
+                  return transfer.fromUserAccount === walletInvolved || transfer.toUserAccount === walletInvolved;
+                });
+                
+                if (relevantTransfers.length === 0) {
+                  console.log('No relevant SOL transfers found');
+                  continue;
+                }
+                
+                const nativeTransfer = relevantTransfers[0];
+                
+                // Format and send Discord message using the new function
+                const message = await createDiscordMessageForSOLTransfer(
+                  transaction,
+                  walletInvolved,
+                  walletNickname || formatAddress(walletInvolved),
+                  isReceiving,
+                  nativeTransfer
+                );
+                
+                // Send to Discord webhook
+                console.log('SENDING TO DISCORD ======================');
+                console.log(`${new Date().toISOString()} - Sending notification to Discord`);
+                if (webhookUrl) {
+                  console.log('Webhook URL:', webhookUrl.substring(0, 25) + '...');
+                  console.log('Message preview:', JSON.stringify(message).substring(0, 200) + '...');
+                  await sendDiscordWebhook(webhookUrl, message);
+                  console.log(`✅ Successfully sent ${isReceiving ? 'RECEIVE_SOL' : 'SEND_SOL'} notification to Discord!`);
+                } else {
+                  console.error('❌ Discord webhook URL not configured');
+                }
+              } catch (error) {
+                console.error('❌ Failed to send to Discord:', (error as Error).message);
+              }
+            }
+          }
+          
+          // NFT transfer or mint handling
+          if (buySellClassification.type === 'NFT_TRANSFER' || buySellClassification.type === 'NFT_MINT') {
+            const activityType = buySellClassification.type === 'NFT_TRANSFER' ? 
+              (buySellClassification.details.tokenTransfer.toUserAccount === walletInvolved ? 'RECEIVE' : 'SEND') : 
+              'MINT';
+            console.log(`⭐ Processing ${activityType} NFT activity`);
+            
+            try {
+              // Format and send Discord message using the new function
+              const message = await createDiscordMessageForNFTActivity(
+                transaction,
+                walletInvolved,
+                walletNickname || formatAddress(walletInvolved),
+                activityType,
+                buySellClassification.details
+              );
+              
+              // Send to Discord webhook
+              console.log('SENDING TO DISCORD ======================');
+              console.log(`${new Date().toISOString()} - Sending notification to Discord`);
+              if (webhookUrl) {
+                console.log('Webhook URL:', webhookUrl.substring(0, 25) + '...');
+                console.log('Message preview:', JSON.stringify(message).substring(0, 200) + '...');
+                await sendDiscordWebhook(webhookUrl, message);
+                console.log(`✅ Successfully sent ${activityType} NFT notification to Discord!`);
+              } else {
+                console.error('❌ Discord webhook URL not configured');
+              }
+            } catch (error) {
+              console.error('❌ Failed to send to Discord:', (error as Error).message);
             }
           }
         }
